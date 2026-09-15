@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: flag
-          image: <ECR_REGISTRY>/togglemaster/flag:v0.0.1-init
+          image: 589138972429.dkr.ecr.us-east-1.amazonaws.com/togglemaster/flag/togglemaster/flag:v0.0.1-init
           ports:
             - containerPort: 8080
           env:

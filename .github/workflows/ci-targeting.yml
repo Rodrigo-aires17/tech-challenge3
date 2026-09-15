@@ -1,0 +1,22 @@
+name: CI - targeting
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/targeting/**"
+      - ".github/workflows/ci-targeting.yml"
+      - ".github/workflows/reusable-ci-cd.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/targeting/**"
+      - ".github/workflows/ci-targeting.yml"
+      - ".github/workflows/reusable-ci-cd.yml"
+
+jobs:
+  ci-cd:
+    uses: ./.github/workflows/reusable-ci-cd.yml
+    with:
+      service_name: targeting
+    secrets: inherit

@@ -1,0 +1,22 @@
+name: CI - auth
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/auth/**"
+      - ".github/workflows/ci-auth.yml"
+      - ".github/workflows/reusable-ci-cd.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/auth/**"
+      - ".github/workflows/ci-auth.yml"
+      - ".github/workflows/reusable-ci-cd.yml"
+
+jobs:
+  ci-cd:
+    uses: ./.github/workflows/reusable-ci-cd.yml
+    with:
+      service_name: auth
+    secrets: inherit

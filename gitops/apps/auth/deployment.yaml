@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: auth
-          image: <ECR_REGISTRY>/togglemaster/auth:v0.0.1-init
+          image: 589138972429.dkr.ecr.us-east-1.amazonaws.com/togglemaster/auth/togglemaster/auth:v0.0.1-init
           ports:
             - containerPort: 8080
           env:

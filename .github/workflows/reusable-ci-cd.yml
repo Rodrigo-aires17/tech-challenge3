@@ -1,0 +1,168 @@
+name: Reusable CI/CD - ToggleMaster microservice
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        required: true
+        type: string
+    secrets:
+      AWS_ROLE_TO_ASSUME:
+        required: true
+      AWS_REGION:
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  SERVICE_DIR: services/${{ inputs.service_name }}
+  IMAGE_NAME: togglemaster/${{ inputs.service_name }}
+
+jobs:
+  build-test:
+    name: Build & Unit Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.SERVICE_DIR }}/go.mod
+          cache-dependency-path: ${{ env.SERVICE_DIR }}/go.sum
+
+      - name: Build
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: go build ./...
+
+      - name: Unit tests
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: go test ./... -cover -race
+
+  lint:
+    name: Linter / Static Analysis
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.SERVICE_DIR }}/go.mod
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: ${{ env.SERVICE_DIR }}
+          args: --config=${{ github.workspace }}/.golangci.yml
+
+  security-scan:
+    name: Security Scan (SAST & SCA)
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.SERVICE_DIR }}/go.mod
+
+      # SCA: vulnerabilidades nas dependências (go.sum)
+      - name: Trivy filesystem scan (SCA)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ env.SERVICE_DIR }}
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      # SAST: vulnerabilidades no código-fonte Go
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+      - name: Run gosec (SAST)
+        working-directory: ${{ env.SERVICE_DIR }}
+        run: gosec -severity=high -confidence=high ./...
+
+  docker-build-scan-push:
+    name: Docker Build & Push
+    runs-on: ubuntu-latest
+    needs: [lint, security-scan]
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tag
+        id: meta
+        run: echo "image_tag=v1.0.0-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image (local)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.SERVICE_DIR }}
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}
+
+      # Container Scan: vulnerabilidades na imagem Docker final
+      - name: Trivy image scan (Container Scan)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+      - name: Configure AWS credentials (OIDC)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push image to ECR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          REMOTE_IMAGE="${{ steps.ecr-login.outputs.registry }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}"
+          docker tag "${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}" "$REMOTE_IMAGE"
+          docker push "$REMOTE_IMAGE"
+
+  update-gitops:
+    name: Update GitOps manifest
+    runs-on: ubuntu-latest
+    needs: docker-build-scan-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Update image tag in deployment manifest
+        run: |
+          set -euo pipefail
+          FILE="gitops/apps/${{ inputs.service_name }}/deployment.yaml"
+          NEW_TAG="${{ needs.docker-build-scan-push.outputs.image_tag }}"
+          sed -i -E "s#(image: .*togglemaster/${{ inputs.service_name }}:).*#\1${NEW_TAG}#" "$FILE"
+          git diff --exit-code "$FILE" && echo "no changes" || echo "updated=true" >> "$GITHUB_ENV"
+
+      - name: Commit and push
+        if: env.updated == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "gitops/apps/${{ inputs.service_name }}/deployment.yaml"
+          git commit -m "chore(gitops): update ${{ inputs.service_name }} image to ${{ needs.docker-build-scan-push.outputs.image_tag }} [skip ci]"
+          git push
