@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: targeting-config
+  namespace: togglemaster
+data:
+  # Preencha com `terraform output redis_primary_endpoint`
+  REDIS_ADDR: "<REDIS_PRIMARY_ENDPOINT>:6379"

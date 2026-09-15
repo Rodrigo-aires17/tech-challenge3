@@ -1,0 +1,55 @@
+# ATENÇÃO:
+# Substitua <ECR_REGISTRY> (ex: 123456789012.dkr.ecr.us-east-1.amazonaws.com)
+# em todos os deployment.yaml antes do primeiro deploy. O pipeline de CI
+# atualiza apenas a TAG da imagem a cada build, preservando o registry.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth
+  namespace: togglemaster
+  labels:
+    app: auth
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth
+  template:
+    metadata:
+      labels:
+        app: auth
+    spec:
+      containers:
+        - name: auth
+          image: <ECR_REGISTRY>/togglemaster/auth:v0.0.1-init
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: AUTH_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-jwt-secret
+                  key: secret
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true

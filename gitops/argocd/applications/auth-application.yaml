@@ -1,0 +1,22 @@
+# Substitua <GITOPS_REPO_URL> pela URL HTTPS do seu repositório GitHub
+# (o mesmo valor de var.gitops_repo_url no Terraform).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: auth
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: "<GITOPS_REPO_URL>"
+    targetRevision: main
+    path: gitops/apps/auth
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: togglemaster
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

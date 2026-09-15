@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flag
+  namespace: togglemaster
+  labels:
+    app: flag
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: flag
+  template:
+    metadata:
+      labels:
+        app: flag
+    spec:
+      containers:
+        - name: flag
+          image: <ECR_REGISTRY>/togglemaster/flag:v0.0.1-init
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef: { name: flag-db-credentials, key: DB_HOST }
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef: { name: flag-db-credentials, key: DB_PORT }
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef: { name: flag-db-credentials, key: DB_NAME }
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef: { name: flag-db-credentials, key: DB_USERNAME }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: flag-db-credentials, key: DB_PASSWORD }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
